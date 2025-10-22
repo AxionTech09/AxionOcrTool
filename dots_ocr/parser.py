@@ -74,17 +74,51 @@ class DotsOCRParser:
         # )
 
         model_path = "./weights/DotsOCR" # path to local model weights
-        self.model = AutoModelForCausalLM.from_pretrained(
-            model_path,
-            attn_implementation=None,        # Disable FlashAttention
-            torch_dtype=torch.float32,       # CPU-friendly dtype
-            device_map="cpu",                # Force CPU usage
-            trust_remote_code=True
-        )
+        
+        try:
+            # Primary loading approach
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_path,
+                attn_implementation=None,        # Disable FlashAttention
+                torch_dtype=torch.float32,       # CPU-friendly dtype
+                device_map="cpu",                # Force CPU usage
+                trust_remote_code=True
+            )
+        except Exception as e:
+            print(f"Primary model loading failed: {e}")
+            print("Trying alternative loading method...")
+            # Alternative loading approach
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_path,
+                torch_dtype=torch.float32,
+                device_map=None,  # Don't use device_map
+                trust_remote_code=True,
+                low_cpu_mem_usage=False
+            )
+            self.model = self.model.to("cpu")
+        
+        # Ensure all model parameters are in float32
+        self.model = self.model.float()
+        
+        # Convert all parameters to float32 recursively
+        for param in self.model.parameters():
+            param.data = param.data.float()
+        
+        # Convert all buffers to float32 recursively  
+        for buffer in self.model.buffers():
+            buffer.data = buffer.data.float()
+        
+        # Set model to evaluation mode
+        self.model.eval()
+        
+        print(f"Model loaded successfully. Device: {next(self.model.parameters()).device}, DType: {next(self.model.parameters()).dtype}")
+        
         self.processor = AutoProcessor.from_pretrained(model_path,  trust_remote_code=True,use_fast=True)
         self.process_vision_info = process_vision_info
 
     def _inference_with_hf(self, image, prompt):
+        import torch
+        
         messages = [
             {
                 "role": "user",
@@ -113,11 +147,45 @@ class DotsOCRParser:
             return_tensors="pt",
         )
 
-        # inputs = inputs.to("cuda")
-        inputs = inputs.to("cpu")
+        # Ensure all inputs are in float32 and on CPU
+        def convert_to_float32(tensor_dict):
+            converted = {}
+            for key, value in tensor_dict.items():
+                if isinstance(value, torch.Tensor):
+                    # Convert to float32 if it's a floating point tensor
+                    if value.dtype in [torch.bfloat16, torch.float16]:
+                        converted[key] = value.float().to("cpu")
+                    else:
+                        converted[key] = value.to("cpu")
+                elif isinstance(value, dict):
+                    converted[key] = convert_to_float32(value)
+                elif isinstance(value, list) and len(value) > 0 and isinstance(value[0], torch.Tensor):
+                    converted[key] = [t.float().to("cpu") if t.dtype in [torch.bfloat16, torch.float16] else t.to("cpu") for t in value]
+                else:
+                    converted[key] = value
+            return converted
+        
+        inputs = convert_to_float32(inputs)
+        
+        # Debug: Check input dtypes
+        print("Input dtypes after conversion:")
+        for key, value in inputs.items():
+            if isinstance(value, torch.Tensor):
+                print(f"  {key}: {value.dtype} on {value.device}")
 
         # Inference: Generation of the output
-        generated_ids = self.model.generate(**inputs, max_new_tokens=24000)
+        try:
+            with torch.no_grad():  # Save memory and improve performance
+                generated_ids = self.model.generate(**inputs, max_new_tokens=24000)
+        except RuntimeError as e:
+            print(f"Generation failed with error: {e}")
+            print("Attempting with reduced precision handling...")
+            # Force all inputs to be exactly float32
+            for key, value in inputs.items():
+                if isinstance(value, torch.Tensor) and value.dtype != torch.float32:
+                    inputs[key] = value.float()
+            with torch.no_grad():
+                generated_ids = self.model.generate(**inputs, max_new_tokens=24000)
         generated_ids_trimmed = [
             out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
         ]
@@ -409,8 +477,8 @@ def main():
         help=""
     )
     parser.add_argument(
-        "--use_hf", type=bool, default=False,
-        help=""
+        "--use_hf", action='store_true', default=False,
+        help="Use HuggingFace model instead of VLLM"
     )
     args = parser.parse_args()
 
