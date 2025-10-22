@@ -64,12 +64,21 @@ class DotsOCRParser:
         from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
         from qwen_vl_utils import process_vision_info
 
-        model_path = "./weights/DotsOCR"
+        # model_path = "./weights/DotsOCR"
+        # self.model = AutoModelForCausalLM.from_pretrained(
+        #     model_path,
+        #     attn_implementation="flash_attention_2",
+        #     torch_dtype=torch.bfloat16,
+        #     device_map="auto",
+        #     trust_remote_code=True
+        # )
+
+        model_path = "./weights/DotsOCR" # path to local model weights
         self.model = AutoModelForCausalLM.from_pretrained(
             model_path,
-            attn_implementation="flash_attention_2",
-            torch_dtype=torch.bfloat16,
-            device_map="auto",
+            attn_implementation=None,        # Disable FlashAttention
+            torch_dtype=torch.float32,       # CPU-friendly dtype
+            device_map="cpu",                # Force CPU usage
             trust_remote_code=True
         )
         self.processor = AutoProcessor.from_pretrained(model_path,  trust_remote_code=True,use_fast=True)
