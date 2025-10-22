@@ -113,7 +113,8 @@ class DotsOCRParser:
             return_tensors="pt",
         )
 
-        inputs = inputs.to("cuda")
+        # inputs = inputs.to("cuda")
+        inputs = inputs.to("cpu")
 
         # Inference: Generation of the output
         generated_ids = self.model.generate(**inputs, max_new_tokens=24000)

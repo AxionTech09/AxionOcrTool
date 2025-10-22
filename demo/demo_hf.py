@@ -38,7 +38,8 @@ def inference(image_path, prompt, model, processor):
         return_tensors="pt",
     )
 
-    inputs = inputs.to("cuda")
+    # inputs = inputs.to("cuda")
+    inputs = inputs.to("cpu")
 
     # Inference: Generation of the output
     generated_ids = model.generate(**inputs, max_new_tokens=24000)
@@ -56,10 +57,16 @@ if __name__ == "__main__":
     # We recommend enabling flash_attention_2 for better acceleration and memory saving, especially in multi-image and video scenarios.
     model_path = "./weights/DotsOCR"
     model = AutoModelForCausalLM.from_pretrained(
+        # model_path,
+        # attn_implementation="flash_attention_2",
+        # torch_dtype=torch.bfloat16,
+        # device_map="auto",
+        # trust_remote_code=True
+
         model_path,
-        attn_implementation="flash_attention_2",
-        torch_dtype=torch.bfloat16,
-        device_map="auto",
+        attn_implementation=None,
+        torch_dtype=torch.float32,
+        device_map="cpu",
         trust_remote_code=True
     )
     processor = AutoProcessor.from_pretrained(model_path,  trust_remote_code=True)
