@@ -41,7 +41,32 @@ dots.ocr: Multilingual Document Layout Parsing in a Single Vision-Language Model
 
 
 ## News 
+* ```2025.10.22 ``` 🖥️ Added CPU-only deployment support for VPS servers - no GPU required! See [CPU Deployment Guide](CPU_DEPLOYMENT_GUIDE.md)
 * ```2025.07.30 ``` 🚀 We release [dots.ocr](https://github.com/rednote-hilab/dots.ocr), — a multilingual documents parsing model based on 1.7b llm, with SOTA performance.
+
+## 🖥️ CPU-Only Deployment
+
+**NEW:** DotsOCR now supports CPU-only deployment for VPS servers without GPU!
+
+### Quick CPU Setup
+```bash
+# Install CPU-optimized dependencies
+pip install -r requirements.txt
+
+# Run with HuggingFace model on CPU
+python dots_ocr/parser.py "image.jpg" --use_hf --output "./output"
+
+# Verify CPU configuration
+python verify_cpu_config.py
+```
+
+### Key Benefits
+- ✅ **No GPU required** - Perfect for VPS servers
+- ✅ **No mixed precision errors** - All float32 operations
+- ✅ **Memory optimized** - Efficient CPU inference
+- ✅ **Easy deployment** - Single command setup
+
+📖 **[Complete CPU Deployment Guide](CPU_DEPLOYMENT_GUIDE.md)**
 
 
 

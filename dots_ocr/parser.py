@@ -63,61 +63,34 @@ class DotsOCRParser:
         import torch
         from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
         from qwen_vl_utils import process_vision_info
+        from cpu_config import CPU_MODEL_CONFIG, FALLBACK_CONFIG, ensure_cpu_dtype
 
-        # model_path = "./weights/DotsOCR"
-        # self.model = AutoModelForCausalLM.from_pretrained(
-        #     model_path,
-        #     attn_implementation="flash_attention_2",
-        #     torch_dtype=torch.bfloat16,
-        #     device_map="auto",
-        #     trust_remote_code=True
-        # )
+        # GPU/bfloat16 configuration removed - using CPU-only float32 for compatibility
 
         model_path = "./weights/DotsOCR" # path to local model weights
         
         try:
-            # Primary loading approach
-            self.model = AutoModelForCausalLM.from_pretrained(
-                model_path,
-                attn_implementation=None,        # Disable FlashAttention
-                torch_dtype=torch.float32,       # CPU-friendly dtype
-                device_map="cpu",                # Force CPU usage
-                trust_remote_code=True
-            )
+            # Primary loading approach using CPU config
+            self.model = AutoModelForCausalLM.from_pretrained(model_path, **CPU_MODEL_CONFIG)
         except Exception as e:
             print(f"Primary model loading failed: {e}")
             print("Trying alternative loading method...")
             # Alternative loading approach
-            self.model = AutoModelForCausalLM.from_pretrained(
-                model_path,
-                torch_dtype=torch.float32,
-                device_map=None,  # Don't use device_map
-                trust_remote_code=True,
-                low_cpu_mem_usage=False
-            )
+            self.model = AutoModelForCausalLM.from_pretrained(model_path, **FALLBACK_CONFIG)
             self.model = self.model.to("cpu")
         
-        # Ensure all model parameters are in float32
-        self.model = self.model.float()
-        
-        # Convert all parameters to float32 recursively
-        for param in self.model.parameters():
-            param.data = param.data.float()
-        
-        # Convert all buffers to float32 recursively  
-        for buffer in self.model.buffers():
-            buffer.data = buffer.data.float()
-        
-        # Set model to evaluation mode
-        self.model.eval()
+        # Apply CPU dtype optimization
+        self.model = ensure_cpu_dtype(self.model)
         
         print(f"Model loaded successfully. Device: {next(self.model.parameters()).device}, DType: {next(self.model.parameters()).dtype}")
+        print("✓ All model weights converted to float32 for CPU compatibility")
         
         self.processor = AutoProcessor.from_pretrained(model_path,  trust_remote_code=True,use_fast=True)
         self.process_vision_info = process_vision_info
 
     def _inference_with_hf(self, image, prompt):
         import torch
+        from cpu_config import convert_inputs_to_cpu_float32
         
         messages = [
             {
@@ -147,25 +120,8 @@ class DotsOCRParser:
             return_tensors="pt",
         )
 
-        # Ensure all inputs are in float32 and on CPU
-        def convert_to_float32(tensor_dict):
-            converted = {}
-            for key, value in tensor_dict.items():
-                if isinstance(value, torch.Tensor):
-                    # Convert to float32 if it's a floating point tensor
-                    if value.dtype in [torch.bfloat16, torch.float16]:
-                        converted[key] = value.float().to("cpu")
-                    else:
-                        converted[key] = value.to("cpu")
-                elif isinstance(value, dict):
-                    converted[key] = convert_to_float32(value)
-                elif isinstance(value, list) and len(value) > 0 and isinstance(value[0], torch.Tensor):
-                    converted[key] = [t.float().to("cpu") if t.dtype in [torch.bfloat16, torch.float16] else t.to("cpu") for t in value]
-                else:
-                    converted[key] = value
-            return converted
-        
-        inputs = convert_to_float32(inputs)
+        # Convert all inputs to CPU float32 using optimized function
+        inputs = convert_inputs_to_cpu_float32(inputs)
         
         # Debug: Check input dtypes
         print("Input dtypes after conversion:")
@@ -180,10 +136,10 @@ class DotsOCRParser:
         except RuntimeError as e:
             print(f"Generation failed with error: {e}")
             print("Attempting with reduced precision handling...")
-            # Force all inputs to be exactly float32
+            # Force all inputs to be exactly float32 (CPU-only operation)
             for key, value in inputs.items():
                 if isinstance(value, torch.Tensor) and value.dtype != torch.float32:
-                    inputs[key] = value.float()
+                    inputs[key] = value.to(torch.float32).to("cpu")
             with torch.no_grad():
                 generated_ids = self.model.generate(**inputs, max_new_tokens=24000)
         generated_ids_trimmed = [

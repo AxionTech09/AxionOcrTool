@@ -1,3 +1,4 @@
+# CPU-optimized requirements for VPS server deployment
 # streamlit 
 gradio
 gradio_image_annotation
@@ -7,5 +8,10 @@ qwen_vl_utils
 transformers==4.51.3
 huggingface_hub
 modelscope
-#flash-attn==2.8.0.post2
-accelerate
+# flash-attn REMOVED - not compatible with CPU-only operation
+# accelerate REMOVED - not needed for CPU inference
+torch>=2.0.0  # CPU version, no CUDA dependencies
+pillow
+numpy
+tqdm
+argparse

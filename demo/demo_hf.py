@@ -38,11 +38,24 @@ def inference(image_path, prompt, model, processor):
         return_tensors="pt",
     )
 
-    # inputs = inputs.to("cuda")
-    inputs = inputs.to("cpu")
+    # Convert all inputs to CPU and float32 for compatibility
+    def convert_inputs_to_float32(tensor_dict):
+        converted = {}
+        for key, value in tensor_dict.items():
+            if isinstance(value, torch.Tensor):
+                if value.dtype.is_floating_point:
+                    converted[key] = value.to(torch.float32).to("cpu")
+                else:
+                    converted[key] = value.to("cpu")
+            else:
+                converted[key] = value
+        return converted
+    
+    inputs = convert_inputs_to_float32(inputs)
 
     # Inference: Generation of the output
-    generated_ids = model.generate(**inputs, max_new_tokens=24000)
+    with torch.no_grad():  # Save memory for CPU operation
+        generated_ids = model.generate(**inputs, max_new_tokens=24000)
     generated_ids_trimmed = [
         out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
     ]
@@ -57,18 +70,17 @@ if __name__ == "__main__":
     # We recommend enabling flash_attention_2 for better acceleration and memory saving, especially in multi-image and video scenarios.
     model_path = "./weights/DotsOCR"
     model = AutoModelForCausalLM.from_pretrained(
-        # model_path,
-        # attn_implementation="flash_attention_2",
-        # torch_dtype=torch.bfloat16,
-        # device_map="auto",
-        # trust_remote_code=True
-
         model_path,
-        attn_implementation=None,
-        torch_dtype=torch.float32,
-        device_map="cpu",
+        attn_implementation=None,          # Disabled for CPU compatibility
+        torch_dtype=torch.float32,        # CPU-optimized precision
+        device_map="cpu",                 # Force CPU usage for VPS server
         trust_remote_code=True
     )
+    
+    # Ensure model is in float32 and on CPU for VPS server compatibility
+    model = model.float().to("cpu")
+    model.eval()
+    
     processor = AutoProcessor.from_pretrained(model_path,  trust_remote_code=True)
 
     image_path = "demo/demo_image1.jpg"
